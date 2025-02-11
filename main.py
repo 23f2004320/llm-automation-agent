@@ -4,7 +4,7 @@ import subprocess
 
 app = FastAPI()
 
-DATA_DIR = "/data"  # Ensure operations are limited to this directory
+DATA_DIR = "data"  # Ensure operations are limited to this directory
 
 @app.post("/run")
 async def run_task(task: str):
@@ -14,7 +14,7 @@ async def run_task(task: str):
             subprocess.run(["npx", "prettier", "--write", file_path], check=True)
             return {"message": "File formatted successfully"}
 
-        return {"error": "Task not recognized"}, 400
+        return {"error": "Task not recognized"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -27,3 +27,8 @@ async def read_file(path: str):
     with open(full_path, "r") as f:
         content = f.read()
     return {"content": content}
+
+# Add this to keep the server running:
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
