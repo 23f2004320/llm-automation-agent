@@ -13,6 +13,9 @@ async def run_task(task: str):
             file_path = f"{DATA_DIR}/format.md"
             subprocess.run(["npx", "prettier", "--write", file_path], check=True)
             return {"message": "File formatted successfully"}
+        if task.lower() == "a5":
+            # Your logic for A5 task
+            return {"message": "A5 task executed successfully"}
 
         return {"error": "Task not recognized"}
     except Exception as e:
@@ -27,6 +30,15 @@ async def read_file(path: str):
     with open(full_path, "r") as f:
         content = f.read()
     return {"content": content}
+
+@app.delete("/delete")
+async def delete_file(path: str):
+    full_path = os.path.join(DATA_DIR, path)
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    os.remove(full_path)
+    return {"message": "File deleted successfully"}
 
 # Add this to keep the server running:
 if __name__ == "__main__":
