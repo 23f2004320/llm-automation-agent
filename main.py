@@ -1,30 +1,29 @@
 from fastapi import FastAPI, HTTPException
 import os
-
-def execute_task(task: str):
-    # Placeholder implementation of execute_task
-    if task == "example":
-        return "Task executed successfully"
-    else:
-        raise ValueError("Invalid task")
+import subprocess
 
 app = FastAPI()
+
+DATA_DIR = "/data"  # Ensure operations are limited to this directory
 
 @app.post("/run")
 async def run_task(task: str):
     try:
-        # Parse and execute the task
-        result = execute_task(task)
-        return {"status": "success", "result": result}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        if "format" in task.lower():
+            file_path = f"{DATA_DIR}/format.md"
+            subprocess.run(["npx", "prettier", "--write", file_path], check=True)
+            return {"message": "File formatted successfully"}
+
+        return {"error": "Task not recognized"}, 400
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/read")
 async def read_file(path: str):
-    if not os.path.exists(path):
+    full_path = os.path.join(DATA_DIR, path)
+    if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail="File not found")
-    with open(path, "r") as file:
-        content = file.read()
+    
+    with open(full_path, "r") as f:
+        content = f.read()
     return {"content": content}
