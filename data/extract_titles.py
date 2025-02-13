@@ -16,9 +16,9 @@ for filename in os.listdir(docs_folder):
                         titles[filename] = line.strip("# ").strip()
                         break
         except UnicodeDecodeError:
-            print(f"⚠️ Unicode error in {filename}, skipping.")
+            print(f"Unicode error in {filename}, skipping.")
 
-with open(index_file, "w", encoding="utf-8") as f:
+with open(index_file, "r", encoding="utf-8") as f:
     json.dump(titles, f, indent=4)
 
 print(f"✅ Index file saved at: {index_file}")
