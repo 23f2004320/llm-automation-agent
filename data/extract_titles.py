@@ -21,4 +21,4 @@ for filename in os.listdir(docs_folder):
 with open(index_file, "r", encoding="utf-8") as f:
     json.dump(titles, f, indent=4)
 
-print(f"✅ Index file saved at: {index_file}")
+print(f" Index file saved at: {index_file}")
