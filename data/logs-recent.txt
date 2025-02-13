@@ -1,3 +1,0 @@
-User logged in
-Error: Database connection failed
-Server started successfully

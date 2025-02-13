@@ -244,6 +244,20 @@ def extract_recent_log_lines():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def format_markdown():
+    """Formats Markdown files in /data/docs/ using Prettier."""
+    docs_path = os.path.join(DATA_DIR, "docs")
+    if not os.path.exists(docs_path):
+        raise HTTPException(status_code=404, detail="docs directory not found")
+
+    try:
+        # Run Prettier on all Markdown files in the docs directory
+        os.system(f"prettier --write {docs_path}/**/*.md")
+        return "✅ Markdown files formatted successfully."
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 def extract_markdown_headers():
     """Finds all Markdown (.md) files in /data/docs/, extracts H1 headers, and saves to /data/docs/index.json"""
     docs_path = os.path.join(DATA_DIR, "docs")
@@ -287,6 +301,11 @@ def extract_markdown_headers():
 @app.post("/run")
 async def run_task(task: str = Query(..., description="Plain-English task description")):
     """Executes a task based on natural language input."""
+    if "run datagen" in task.lower():
+        email = task.split()[-1]  # Assume the email is the last word in the task description
+        raise HTTPException(status_code=400, detail="run_datagen function is not defined")
+    elif "format" in task.lower() and "prettier" in task.lower():
+        return format_markdown()
     if "sort contacts" in task.lower():
         return {"task": task, "output": sort_contacts()}
     elif "count wednesdays" in task.lower():
