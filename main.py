@@ -13,12 +13,16 @@ from PIL import Image
 import numpy as np
 import sqlite3
 import base64
-from dotenv import load_dotenv
 
+last_user_instruction = ""
 app = FastAPI()
+
 
 @app.post("/run")
 async def run_task(task: str = Query(...)):
+    global last_user_instruction
+    last_user_instruction = task  # Store the raw instruction here
+
     if not task:
         raise HTTPException(status_code=400, detail="Task description required")
     
@@ -46,16 +50,14 @@ async def run_task(task: str = Query(...)):
         elif task_code == "A6":
             result = handle_task_A6()
         elif task_code == "A7":
-            result = handle_task_A7()
+            result = handle_task_A7()  # <--- no args
         elif task_code == "A8":
             result = handle_task_A8()
         elif task_code == "A9":
             result = handle_task_A9()
         elif task_code == "A10":
             result = handle_task_A10()
-        # Future tasks (A4 - A10) can be integrated similarly.
         else:
-            # If LLM returned UNKNOWN or an unsupported task code.
             raise Exception("Unrecognized or unsupported task code returned by LLM.")
         
         return {"status": "success", "result": result}
@@ -141,6 +143,7 @@ def handle_task_A1(user_email: str):
         raise Exception("Error running datagen.py: " + e.stderr)
     
     return {"stdout": proc.stdout, "stderr": proc.stderr}
+
 
 
 def handle_task_A2():
@@ -336,113 +339,174 @@ def handle_task_A6():
 
     return {"written_file": output_file, "index": index}
 
-def handle_task_A7():
+
+def secure_path_check(path: str):
     """
-    1. Reads /data/email.txt (the entire email message).
-    2. Sends the email content to GPT-4o-Mini with instructions to extract the sender's email.
-    3. Writes just the sender’s email to /data/email-sender.txt.
+    Ensures 'path' starts with /data. Raises HTTPException if not.
     """
-    input_file = os.path.join(os.getcwd(), "data", "email.txt")
-    output_file = os.path.join(os.getcwd(), "data", "email-sender.txt")
+    if not path.startswith("/data"):
+        raise HTTPException(status_code=400, detail=f"Security Violation: {path} is outside /data")
 
-    # 1. Verify the file exists
-    if not os.path.exists(input_file):
-        return {"error": f"File not found: {input_file}"}
-
-    # 2. Read the entire email content
-    with open(input_file, "r", encoding="utf-8") as f:
-        email_content = f.read()
-
-    # 3. Prepare the LLM environment
-    load_dotenv("secret.env")
-    AIPROXY_TOKEN = os.getenv("AIPROXY_TOKEN")
-    #client = OpenAI(api_key=AIPROXY_TOKEN)
-    if not AIPROXY_TOKEN:
-        raise ValueError("⚠ AIPROXY_TOKEN is missing! Check your secret.env file.")
+def localize_path(path: str) -> str:
+    """
+    1. Check that path starts with /data (secure_path_check).
+    2. Convert /data/... -> ./data/... in your project folder.
+    """
+    secure_path_check(path)
+    relative_part = os.path.relpath(path, "/data")  # e.g. "email.txt"
+    return os.path.join(os.getcwd(), "data", relative_part)
 
 
-    client = openai.OpenAI(api_key=AIPROXY_TOKEN, base_url="https://aiproxy.sanand.workers.dev/openai/v1")
-    print(f"✅ AIPROXY_TOKEN loaded successfully: {AIPROXY_TOKEN[:5]}")  # Masked for security
+############################################################
+# HELPER TO CALL GPT-4o-Mini
+############################################################
+def call_openai(prompt: str) -> str:
+    """
+    Sends 'prompt' to GPT-4o-Mini (via AI Proxy) and returns the raw string response.
+    Adjust or rename as needed.
+    """
     token = os.environ.get("AIPROXY_TOKEN")
-
-    #if not token:
-        #return {"error": "AIPROXY_TOKEN environment variable not set."}
-
-    #openai.api_key = token
-    #openai.api_base = "https://aiproxy.sanand.workers.dev/openai/v1"
-
     if not token:
-        return {"error": "AIPROXY_TOKEN environment variable not set."}
+        raise Exception("AIPROXY_TOKEN environment variable not set.")
 
     openai.api_key = token
     openai.api_base = "https://aiproxy.sanand.workers.dev/openai/v1"
 
-    # 4. Build a prompt instructing GPT-4o-Mini to extract only the sender’s email
-    #    We'll ask for a JSON response to parse it safely.
-    prompt = (
-        "You are a helpful assistant. I have an email message:\n\n"
-        f"{email_content}\n\n"
-        "Please extract only the sender’s email address from this email. "
-        "Return your answer in a JSON object with a single key 'sender_email'. For example:\n"
-        "{\n  \"sender_email\": \"example@domain.com\"\n}\n\n"
-        "Return only the JSON object."
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ],
     )
+    raw_message = response["choices"][0]["message"]["content"]
+    return raw_message.strip()
+
+
+############################################################
+# A7 TASK: EXTRACT SENDER'S EMAIL USING TWO-STEP GPT APPROACH
+############################################################
+def handle_task_A7():
+    """
+    1. Reads the global 'last_user_instruction' for user’s instructions.
+    2. Step 1: GPT-4o-Mini parses input_file & output_file from last_user_instruction.
+    3. Reads the email content from 'input_file'.
+    4. Step 2: GPT-4o-Mini extracts the sender's email from that content.
+    5. Writes the email to 'output_file'.
+    6. Returns a dict with status info.
+    """
+    global last_user_instruction
+
+    # -----------------------------------------
+    # STEP 1: Ask GPT for input_file & output_file
+    # -----------------------------------------
+    prompt_step1 = f"""
+You are a task automation assistant. Extract the following details from the task description:
+
+- "input_file": MUST start with /data
+- "output_file": MUST start with /data
+
+Task Description: {last_user_instruction}
+
+Return only valid JSON:
+{{
+  "input_file": "/data/some_input_file.txt",
+  "output_file": "/data/some_output_file.txt"
+}}
+No extra text.
+""".strip()
 
     try:
-        # 5. Make the GPT-4o-Mini chat request
-        # response = openai.chat.completions.create(
-        #     model="gpt-4o-mini",
-        #     messages=[
-        #         {"role": "system", "content": "You are a helpful assistant."},
-        #         {"role": "user", "content": prompt},
-        #     ]
-        # )
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt},
-            ]
-        )
-
-        # 6. Parse the raw response
-        raw_message = response["choices"][0]["message"]["content"].strip()
-        # Remove potential code fences
-        raw_message = re.sub(r"^```json\s*", "", raw_message)
-        raw_message = re.sub(r"\s*```$", "", raw_message)
-
-        if not raw_message:
-            return {"error": "LLM returned empty response."}
-
-        # Attempt to parse JSON
-        try:
-            data = json.loads(raw_message)
-        except json.JSONDecodeError:
-            return {
-                "error": "LLM response was not valid JSON.",
-                "raw_response": raw_message
-            }
-
-        sender_email = data.get("sender_email", "").strip()
-        if not sender_email:
-            return {
-                "error": "No 'sender_email' found in LLM response.",
-                "raw_response": raw_message
-            }
-
-        # 7. Write the sender’s email to /data/email-sender.txt
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(sender_email + "\n")
-
+        response_text_step1 = call_openai(prompt_step1)
+        data_step1 = json.loads(response_text_step1)
+    except json.JSONDecodeError:
         return {
-            "status": "success",
-            "sender_email": sender_email,
-            "written_file": output_file
+            "error": "GPT step1 did not return valid JSON.",
+            "raw_response": response_text_step1
+        }
+    except Exception as e:
+        return {"error": f"Error in GPT step1: {str(e)}"}
+
+    input_file = data_step1.get("input_file")
+    output_file = data_step1.get("output_file")
+
+    if not input_file or not output_file:
+        return {
+            "error": "GPT step1 did not provide both input_file and output_file.",
+            "raw_response": data_step1
         }
 
-    except Exception as e:
-        return {"error": str(e)}
+    # LOCALIZE the paths so we actually find the file in ./data/...
+    local_input_file = localize_path(input_file)
+    local_output_file = localize_path(output_file)
 
+    # -----------------------------------------
+    # STEP 2: Read the email content from local_input_file
+    # -----------------------------------------
+    if not os.path.exists(local_input_file):
+        return {"error": f"Input file not found: {input_file}"}
+
+    try:
+        with open(local_input_file, "r", encoding="utf-8") as f:
+            email_content = f.read()
+    except Exception as e:
+        return {"error": f"Could not read input file: {str(e)}"}
+
+    # -----------------------------------------
+    # STEP 3: Ask GPT to parse the email content for sender's email
+    # -----------------------------------------
+    prompt_step2 = f"""
+You are a task automation assistant. Extract the following details from the email content:
+- "email": The extracted sender's email address.
+
+Email Content:
+{email_content}
+
+Return the details *strictly as a valid JSON object*, without any extra formatting, explanations, or code blocks. Ensure that:
+1. The output is *not wrapped in quotes, triple quotes, or backticks*.
+2. The output is *pure JSON*, without any additional text.
+
+{{
+  "email": "extracted_email_here"
+}}
+
+Do not include any explanations, just return the JSON object.
+    """.strip()
+
+    try:
+        response_text_step2 = call_openai(prompt_step2)
+        data_step2 = json.loads(response_text_step2)
+    except json.JSONDecodeError:
+        return {
+            "error": "GPT step2 did not return valid JSON.",
+            "raw_response": response_text_step2
+        }
+    except Exception as e:
+        return {"error": f"Error in GPT step2: {str(e)}"}
+
+    sender_email = data_step2.get("email", "").strip()
+    if not sender_email:
+        return {
+            "error": "GPT step2 did not provide an 'email' field.",
+            "raw_response": data_step2
+        }
+
+    # -----------------------------------------
+    # STEP 4: Write the email to local_output_file
+    # -----------------------------------------
+    try:
+        with open(local_output_file, "w", encoding="utf-8") as f:
+            f.write(sender_email)
+    except Exception as e:
+        return {"error": f"Could not write to output file: {str(e)}"}
+
+    # Done
+    return {
+        "status": "success",
+        "sender_email": sender_email,
+        "input_file": input_file,
+        "output_file": output_file
+    }
 def handle_task_A8():
     """
     1. Reads /data/credit-card.png
@@ -551,7 +615,7 @@ def handle_task_A9():
 
     try:
         # 6. Call GPT-4o-Mini with the prompt
-        response = openai.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -616,8 +680,6 @@ def handle_task_A10():
     except Exception as e:
         return {"error": str(e)}
 
-import openai
-
 def parse_task_with_llm(task: str) -> dict:
     """
     Uses GPT-4o-Mini via the AI Proxy to parse the plain-English task and extract a structured task code.
@@ -627,11 +689,9 @@ def parse_task_with_llm(task: str) -> dict:
     if not token:
         raise Exception("AIPROXY_TOKEN environment variable not set")
     
-    # Initialize the OpenAI client
-    client = openai.OpenAI(
-        api_key=token,
-        base_url="https://aiproxy.sanand.workers.dev/openai/v1"
-    )
+    # Set the API key and base URL for the proxy.
+    openai.api_key = token
+    openai.api_base = "https://aiproxy.sanand.workers.dev/openai/v1"
     
     # Construct a prompt with explicit mappings between task descriptions and task codes.
     prompt = (
@@ -654,36 +714,32 @@ def parse_task_with_llm(task: str) -> dict:
     )
     
     try:
-        # Call the OpenAI API
-        response = client.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a task parser for DataWorks Solutions."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are a helpful task parser."},
+                {"role": "user", "content": prompt},
             ]
         )
         
-        # Debug: Print the raw response
-        print("Raw API Response:", response)
+        # Debug: print the raw response.
+        print("Raw LLM response:", response)
         
-        # Extract the content
-        raw_message = response.choices[0].message.content.strip()
+        # Extract the content.
+        raw_message = response["choices"][0]["message"]["content"]
         
-        # Remove Markdown code fences (```json and ```)
+        # Remove markdown code fences if present.
         raw_message = re.sub(r"^```json\s*", "", raw_message)
         raw_message = re.sub(r"\s*```$", "", raw_message)
         
-        # Debug: Print the raw message
-        print("Raw Message (before JSON parsing):", raw_message)
-        
-        if not raw_message:
+        if not raw_message.strip():
             raise Exception("LLM returned an empty response: " + str(response))
         
-        # Parse the JSON response
         parsed = json.loads(raw_message)
         return parsed
     except Exception as e:
         raise Exception(f"Error calling LLM: {str(e)}")
+
 
 def passes_luhn(number_str: str) -> bool:
     """
