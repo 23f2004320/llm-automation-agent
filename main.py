@@ -13,6 +13,7 @@ from PIL import Image
 import numpy as np
 import sqlite3
 import base64
+from dotenv import load_dotenv
 
 app = FastAPI()
 
@@ -140,7 +141,6 @@ def handle_task_A1(user_email: str):
         raise Exception("Error running datagen.py: " + e.stderr)
     
     return {"stdout": proc.stdout, "stderr": proc.stderr}
-
 
 
 def handle_task_A2():
@@ -354,7 +354,22 @@ def handle_task_A7():
         email_content = f.read()
 
     # 3. Prepare the LLM environment
+    load_dotenv("secret.env")
+    AIPROXY_TOKEN = os.getenv("AIPROXY_TOKEN")
+    #client = OpenAI(api_key=AIPROXY_TOKEN)
+    if not AIPROXY_TOKEN:
+        raise ValueError("⚠ AIPROXY_TOKEN is missing! Check your secret.env file.")
+
+
+    client = openai.OpenAI(api_key=AIPROXY_TOKEN, base_url="https://aiproxy.sanand.workers.dev/openai/v1")
+    print(f"✅ AIPROXY_TOKEN loaded successfully: {AIPROXY_TOKEN[:5]}")  # Masked for security
     token = os.environ.get("AIPROXY_TOKEN")
+
+    #if not token:
+        #return {"error": "AIPROXY_TOKEN environment variable not set."}
+
+    #openai.api_key = token
+    #openai.api_base = "https://aiproxy.sanand.workers.dev/openai/v1"
 
     if not token:
         return {"error": "AIPROXY_TOKEN environment variable not set."}
@@ -375,7 +390,14 @@ def handle_task_A7():
 
     try:
         # 5. Make the GPT-4o-Mini chat request
-        response = openai.ChatCompletion.create(
+        # response = openai.chat.completions.create(
+        #     model="gpt-4o-mini",
+        #     messages=[
+        #         {"role": "system", "content": "You are a helpful assistant."},
+        #         {"role": "user", "content": prompt},
+        #     ]
+        # )
+        response = openai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -529,7 +551,7 @@ def handle_task_A9():
 
     try:
         # 6. Call GPT-4o-Mini with the prompt
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -594,6 +616,8 @@ def handle_task_A10():
     except Exception as e:
         return {"error": str(e)}
 
+import openai
+
 def parse_task_with_llm(task: str) -> dict:
     """
     Uses GPT-4o-Mini via the AI Proxy to parse the plain-English task and extract a structured task code.
@@ -603,9 +627,11 @@ def parse_task_with_llm(task: str) -> dict:
     if not token:
         raise Exception("AIPROXY_TOKEN environment variable not set")
     
-    # Set the API key and base URL for the proxy.
-    openai.api_key = token
-    openai.api_base = "https://aiproxy.sanand.workers.dev/openai/v1"
+    # Initialize the OpenAI client
+    client = openai.OpenAI(
+        api_key=token,
+        base_url="https://aiproxy.sanand.workers.dev/openai/v1"
+    )
     
     # Construct a prompt with explicit mappings between task descriptions and task codes.
     prompt = (
@@ -628,22 +654,28 @@ def parse_task_with_llm(task: str) -> dict:
     )
     
     try:
-        response = openai.Completion.create(
+        # Call the OpenAI API
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
-            prompt=prompt,
-            max_tokens=100,
-            temperature=0
+            messages=[
+                {"role": "system", "content": "You are a task parser for DataWorks Solutions."},
+                {"role": "user", "content": prompt}
+            ]
         )
         
-        # Debug: print the raw response.
-        print("Raw LLM response:", response)
+        # Debug: Print the raw response
+        print("Raw API Response:", response)
         
-        # Extract the content.
-        raw_message = response.choices[0].text.strip()
+        # Extract the content
+        raw_message = response.choices[0].message.content.strip()
         
         if not raw_message:
             raise Exception("LLM returned an empty response: " + str(response))
         
+        # Debug: Print the raw message
+        print("Raw Message:", raw_message)
+        
+        # Parse the JSON response
         parsed = json.loads(raw_message)
         return parsed
     except Exception as e:
