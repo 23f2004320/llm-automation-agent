@@ -628,32 +628,26 @@ def parse_task_with_llm(task: str) -> dict:
     )
     
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.Completion.create(
             model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful task parser."},
-                {"role": "user", "content": prompt},
-            ]
+            prompt=prompt,
+            max_tokens=100,
+            temperature=0
         )
         
         # Debug: print the raw response.
         print("Raw LLM response:", response)
         
         # Extract the content.
-        raw_message = response["choices"][0]["message"]["content"]
+        raw_message = response.choices[0].text.strip()
         
-        # Remove markdown code fences if present.
-        raw_message = re.sub(r"^```json\s*", "", raw_message)
-        raw_message = re.sub(r"\s*```$", "", raw_message)
-        
-        if not raw_message.strip():
+        if not raw_message:
             raise Exception("LLM returned an empty response: " + str(response))
         
         parsed = json.loads(raw_message)
         return parsed
     except Exception as e:
         raise Exception(f"Error calling LLM: {str(e)}")
-
 
 def passes_luhn(number_str: str) -> bool:
     """
