@@ -669,11 +669,15 @@ def parse_task_with_llm(task: str) -> dict:
         # Extract the content
         raw_message = response.choices[0].message.content.strip()
         
-        if not raw_message:
-            raise Exception("LLM returned an empty response: " + str(response))
+        # Remove Markdown code fences (```json and ```)
+        raw_message = re.sub(r"^```json\s*", "", raw_message)
+        raw_message = re.sub(r"\s*```$", "", raw_message)
         
         # Debug: Print the raw message
-        print("Raw Message:", raw_message)
+        print("Raw Message (before JSON parsing):", raw_message)
+        
+        if not raw_message:
+            raise Exception("LLM returned an empty response: " + str(response))
         
         # Parse the JSON response
         parsed = json.loads(raw_message)
