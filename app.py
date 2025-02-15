@@ -500,4 +500,3 @@ async def read_file(path: str = Query(..., description="File path to read")):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
