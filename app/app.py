@@ -19,8 +19,8 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from tasksA import *
-from tasksB import *
+from .tasksA import *
+from .tasksB import *
 import requests
 from dotenv import load_dotenv
 import os
@@ -496,6 +496,9 @@ async def read_file(path: str = Query(..., description="File path to read")):
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@app.get("/")
+def home():
+    return("Yay,joe u are going good")
 
 if __name__ == "__main__":
     import uvicorn

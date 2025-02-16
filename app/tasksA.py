@@ -10,12 +10,13 @@ from scipy.spatial.distance import cosine
 from dotenv import load_dotenv
 from fastapi import HTTPException
 
+
 load_dotenv()
 
 AIPROXY_TOKEN = os.getenv('AIPROXY_TOKEN')
 
 
-def A1(email="23f2004320@ds.study.iitm.ac.in"):
+def A1(email="23f3004024@ds.study.iitm.ac.in"):
     try:
         process = subprocess.Popen(
             ["uv", "run", "https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py", email],
@@ -29,7 +30,7 @@ def A1(email="23f2004320@ds.study.iitm.ac.in"):
         raise HTTPException(status_code=500, detail=f"Error: {e.stderr}")
 # A1()
 def A2(prettier_version="prettier@3.4.2", filename="/data/format.md"):
-    command = [r"C:\Program Files\nodejs\npx.cmd", prettier_version, "--write", filename]
+    command = ["npx", prettier_version, "--write", filename]
     try:
         subprocess.run(command, check=True)
         print("Prettier executed successfully.")
@@ -215,6 +216,11 @@ def get_embedding(text):
     return response.json()["data"][0]["embedding"]
 
 def A9(filename='/data/comments.txt', output_filename='/data/comments-similar.txt'):
+    AIPROXY_TOKEN = os.getenv("AIPROXY_TOKEN")  # Ensure token is loaded
+
+    if not AIPROXY_TOKEN:
+        raise ValueError("❌ AIPROXY_TOKEN is missing! Make sure it is set in the environment.")
+
     # Read comments
     with open(filename, 'r') as f:
         comments = [line.strip() for line in f.readlines()]
